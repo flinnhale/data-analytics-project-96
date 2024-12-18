@@ -128,6 +128,23 @@ from last_paid_click
 where utm_source in ('yandex','vk')
 group by 1
 order by 6
+
+-- ежедневные расходы на рекламу
+
+select 
+    campaign_date::date as spend_day,
+    utm_source,
+    SUM(daily_spent) as total_spent
+from vk_ads
+group by 1,2
+union all
+select  
+    campaign_date::date as spend_day,
+    utm_source,
+    SUM(daily_spent) as total_spent
+from ya_ads
+group by 1,2
+order by 1,2;
     
 -- смотрим через сколько дней закрывается 90% лидов
 
