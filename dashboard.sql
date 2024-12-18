@@ -1,226 +1,134 @@
-1. --кол-во посетителей
-select count(distinct visitor_id) as total_visitors
-from sessions;
+--итоговая таблица с основными метриками
 
-2. --по дням
-with tab1 (
-    select 
-    visit_date::date AS visit_day,
-    case 
-	when lower(source) like 'vk%' then 'vkontakte'
-	when lower(source) like 'yandex%' then 'yandex'
-	when lower(source) like 'twitter%' then 'twitter'
-	when lower(source) like 'facebook%' then 'facebook'
-	when lower(source) like 'telegram%' or lower(source) = 'tg' then 'telegram'
-	else source
-    end as
-    source,
-    count(distinct visitor_id) AS visitor_count
-from sessions
-group by 1,2
-order by 1)
-
-select 
-	visit_day,
-	case 
-		when visitors_count < (select avg(visitors_count) from tab1) then 'others'
-		else source
-	end
-	as source,
-	sum (visitors_count)
-	from tab1
-	group by 1,2
-	order by date;
-
-
--- по неделям
 with tab1 as (
-    select 
-    date_trunc('week', visit_date) AS visit_week,
-    case 
-	when lower(source) like 'vk%' then 'vkontakte'
-	when lower(source) like 'yandex%' then 'yandex'
-	when lower(source) like 'twitter%' then 'twitter'
-	when lower(source) like 'facebook%' then 'facebook'
-	when lower(source) like 'telegram%' or lower(source) = 'tg' then 'telegram'
-	else source
-    end as
-    source,
-    count(distinct visitor_id) AS visitor_count
-from sessions
-group by 1,2
+    select
+        s.visitor_id,
+        date(s.visit_date) as visit_date,
+        s.source as utm_source,
+        s.medium as utm_medium,
+        s.campaign as utm_campaign,
+        l.lead_id,
+        l.created_at,
+        l.amount,
+        l.closing_reason,
+        l.status_id,
+        row_number()
+            over (partition by s.visitor_id order by s.visit_date desc) as rn
+    from sessions as s
+    left join leads as l on s.visitor_id = l.visitor_id
+    where s.medium in ('cpc', 'cpm', 'cpa', 'cpp', 'tg', 'youtube', 'social')   
+),
+
+last_paid_click as (
+select
+	utm_source,
+	utm_medium,
+	utm_campaign,
+	count(visitor_id) as visitors_count,
+	count(lead_id) as leads_count,
+	visit_date,
+	count(status_id) filter (where status_id = 142) as purchases_count,
+	sum(amount) as revenue
+from tab1
+where rn = 1
+group by 6,1,2,3),
+
+ads as (
+
+select 
+	date(campaign_date) as campaign_date,
+	utm_source,
+	utm_medium,
+	utm_campaign,
+	sum(daily_spent) as total_spent
+from vk_ads 
+group by 1,2,3,4
+union 
+select 
+	date(campaign_date) as campaign_date,
+	utm_source,
+	utm_medium,
+	utm_campaign,
+	sum(daily_spent) as total_spent
+from ya_ads  
+group by 1,2,3,4
 order by 1)
 
-select 
-	visit_week,
-	case 
-		when visitors_count < (select avg(visitors_count) from tab1) then 'others'
-		else source
-	end
-	as source,
-	sum (visitors_count)
-	from tab1
-	group by 1,2
-	order by date;
-
-3. -- кол-во лидов
-
-select count(distinct lead_id) as total_leads
-from leads;
-
-4. -- конверсия в лида и в оплату
-
-with total_visitors as (
-    select count(distinct visitor_id) as total_visitors
-    from sessions
-),
-total_leads as (
-    select count(distinct lead_id) as total_leads
-    from leads
-),
-total_paid as (
-    select count(distinct lead_id) as paid_count
-    from leads
-    where status_id = '142')
-    
-select 
-	(select paid_count from total_paid) as paid,
-    (select total_leads from total_leads) as leads,
-    (select total_visitors from total_visitors) as visitors,
-    round((select total_leads from total_leads) * 100.0 / 
-    (select total_visitors from total_visitors),2) as conversion_click_to_lead,
-    round((select paid_count from total_paid) * 100.0 /
-    (select total_leads from total_leads),2) as conversion_lead_to_payment;
-
-
-
-5. -- расходы за каждый день
-
-select 
-    campaign_date::date as spend_day,
-    utm_source,
-    SUM(daily_spent) as total_spent
-from vk_ads
+select
+	visit_date,
+    lpc.utm_source,
+    case
+        when sum(lpc.visitors_count) = 0 then 0
+        else round(sum(ads.total_spent)/sum(lpc.visitors_count),2) 
+    end as cpu,
+    case
+        when sum(lpc.leads_count) = 0 then 0
+        else round(sum(ads.total_spent)/sum(lpc.leads_count),2) 
+    end as cpl,
+    case
+        when sum(lpc.purchases_count) = 0 then 0
+        else round(sum(ads.total_spent)/sum(lpc.purchases_count),2)
+    end as cppu,
+    case    
+        when sum(ads.total_spent) = 0 then 0
+        else coalesce(round((sum(lpc.revenue)-sum(ads.total_spent))*100.00/sum(ads.total_spent),2),0)
+    end as roi
+from last_paid_click as lpc
+left join ads on lpc.utm_source = ads.utm_source
+    		 and lpc.utm_medium = ads.utm_medium
+             and lpc.utm_campaign = ads.utm_campaign
+             and lpc.visit_date = ads.campaign_date
+where lpc.utm_source in ('yandex','vk')
 group by 1,2
-union all
-select  
-    campaign_date::date as spend_day,
-    utm_source,
-    SUM(daily_spent) as total_spent
-from ya_ads
-group by 1,2
-order by 1,2;
+order by 1,5 desc nulls last;
 
-6. --  окупаемость каналов
+-- конверсия из посетителя в лида, из лида в оплату
 
-with ad_spending as (
-    select 
-        utm_source,
-        sum(daily_spent) as total_spent
-    from (
-        select 
-            utm_source,
-            daily_spent
-        from vk_ads
-        union all
-        select 
-            utm_source,
-            daily_spent
-        from ya_ads
-    ) as combined_ads
-    group by utm_source
+with tab1 as (
+    select
+        s.visitor_id,
+        date(s.visit_date) as visit_date,
+        s.source as utm_source,
+        s.medium as utm_medium,
+        s.campaign as utm_campaign,
+        l.lead_id,
+        l.created_at,
+        l.amount,
+        l.closing_reason,
+        l.status_id,
+        row_number()
+            over (partition by s.visitor_id order by s.visit_date desc) as rn
+    from sessions as s
+    left join leads as l on s.visitor_id = l.visitor_id
+    where s.medium in ('cpc', 'cpm', 'cpa', 'cpp', 'tg', 'youtube', 'social')   
 ),
-lead_income as (
-    select 
-        s.source,
-        sum(l.amount) as total_income
-    from leads l
-    join sessions s on l.visitor_id = s.visitor_id
-    group by 1
-)
 
-select 
-    ads.utm_source,
-    coalesce(sum(ads.total_spent), 0) as total_spent,
-    coalesce(sum(li.total_income), 0) as total_income,
-    coalesce(sum(li.total_income), 0) - coalesce(sum(ads.total_spent), 0) as profit
-from ad_spending as ads
-left join lead_income li on ads.utm_source = li.source
+last_paid_click as (
+select
+	utm_source,
+	utm_medium,
+	utm_campaign,
+	count(visitor_id) as visitors_count,
+	count(lead_id) as leads_count,
+	visit_date,
+	count(status_id) filter (where status_id = 142) as purchases_count,
+	sum(amount) as revenue
+from tab1
+where rn = 1
+group by 6,1,2,3)
+
+select
+    utm_source,
+    sum(visitors_count) as visitors_count,
+    sum(leads_count) as leads_count,
+    sum(purchases_count) as purchases_count,
+    (select round(sum(leads_count)*100.0/sum(visitors_count),2) from last_paid_click) as click_to_lead,
+    (select round(sum(purchases_count)*100.0/sum(leads_count),2) from last_paid_click) as lead_to_paid
+from last_paid_click
+where utm_source in ('yandex','vk')
 group by 1
-order by 1;
-
-7. -- итоговая таблица
-
-WITH ad_spending AS (
-    SELECT
-        source,
-        SUM(daily_spent) AS total_cost,
-        DATE(campaign_date) AS ad_date
-    FROM (
-        SELECT
-            vk.utm_source AS source,
-            vk.daily_spent,
-            vk.campaign_date
-        FROM vk_ads vk
-        UNION ALL
-        SELECT
-            ya.utm_source AS source,
-            ya.daily_spent,
-            ya.campaign_date
-        FROM ya_ads ya
-    ) AS combined_ads
-    GROUP BY source, ad_date
-),
-lead_data AS (
-    SELECT
-        s.source,
-        COUNT(DISTINCT s.visitor_id) AS visitors_count,
-        COUNT(l.lead_id) AS leads_count,
-        DATE(s.visit_date) AS visit_date
-    FROM sessions s
-    LEFT JOIN leads l ON s.visitor_id = l.visitor_id
-    GROUP BY s.source, visit_date
-),
-sales_data AS (
-    SELECT
-        s.source,
-        COUNT(sale.lead_id) AS purchases_count,
-        SUM(sale.amount) AS revenue,
-        DATE(s.visit_date) AS visit_date
-    FROM sessions s
-    LEFT JOIN leads sale ON s.visitor_id = sale.visitor_id
-    GROUP BY s.source, visit_date
-)
-
-select DISTINCT
-    ads.ad_date,
-    ads.source,
-    COALESCE(ads.total_cost, 0) AS total_cost,
-    COALESCE(ld.visitors_count, 0) AS visitors_count,
-    COALESCE(ld.leads_count, 0) AS leads_count,
-    COALESCE(sd.purchases_count, 0) AS purchases_count,
-    COALESCE(sd.revenue, 0) AS revenue,
-    CASE
-        WHEN COALESCE(ld.visitors_count, 0) > 0 THEN COALESCE(ads.total_cost, 0) / ld.visitors_count
-        ELSE 0
-    END AS cpu,
-    CASE
-        WHEN COALESCE(ld.leads_count, 0) > 0 THEN COALESCE(ads.total_cost, 0) / ld.leads_count
-        ELSE 0
-    END AS cpl,
-    CASE
-        WHEN COALESCE(sd.purchases_count, 0) > 0 THEN COALESCE(ads.total_cost, 0) / sd.purchases_count
-        ELSE 0
-    END AS cppu,
-    CASE
-        WHEN COALESCE(ads.total_cost, 0) > 0 THEN (COALESCE(sd.revenue, 0) - COALESCE(ads.total_cost, 0)) / COALESCE(ads.total_cost, 0) * 100
-        ELSE 0
-    END AS roi
-FROM ad_spending ads
-LEFT JOIN lead_data ld ON ads.source = ld.source AND ads.ad_date = ld.visit_date
-LEFT JOIN sales_data sd ON ads.source = sd.source AND ads.ad_date = sd.visit_date
-ORDER BY ads.ad_date, ads.source;
-
+order by 6
+    
 -- смотрим через сколько дней закрывается 90% лидов
 
 with tab1 as (
@@ -230,7 +138,7 @@ with tab1 as (
     from sessions as s 
     left join leads as l 
         on s.visitor_id = l.visitor_id
-    where s.medium <> 'organic'
+    where medium in ('cpc', 'cpm', 'cpa', 'cpp', 'tg', 'youtube', 'social') 
     group by 1 
 )
 , tab2 as (
@@ -249,7 +157,7 @@ left join leads as l
     on
         t.visitor_id = l.visitor_id
         and t.mx_visit <= l.created_at
-where medium <> 'organic' 
+where medium in ('cpc', 'cpm', 'cpa', 'cpp', 'tg', 'youtube', 'social')  
 and status_id  = 142
 )
 
