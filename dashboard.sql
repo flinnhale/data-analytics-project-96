@@ -220,3 +220,39 @@ FROM ad_spending ads
 LEFT JOIN lead_data ld ON ads.source = ld.source AND ads.ad_date = ld.visit_date
 LEFT JOIN sales_data sd ON ads.source = sd.source AND ads.ad_date = sd.visit_date
 ORDER BY ads.ad_date, ads.source;
+
+-- смотрим через сколько дней закрывается 90% лидов
+
+with tab1 as (
+    select
+        s.visitor_id, 
+        max(visit_date) as mx_visit 
+    from sessions as s 
+    left join leads as l 
+        on s.visitor_id = l.visitor_id
+    where s.medium <> 'organic'
+    group by 1 
+)
+, tab2 as (
+select
+    s.visit_date,
+    lead_id,
+    l.created_at,
+    closing_reason, 
+    status_id 
+from tab1 as t 
+inner join sessions as s 
+    on
+        t.visitor_id = s.visitor_id
+        and t.mx_visit = s.visit_date
+left join leads as l 
+    on
+        t.visitor_id = l.visitor_id
+        and t.mx_visit <= l.created_at
+where medium <> 'organic' 
+and status_id  = 142
+)
+
+select 
+    percentile_disc(0.9) within group (order by date_trunc('day', created_at - visit_date)) as days_for_close
+from tab2;
