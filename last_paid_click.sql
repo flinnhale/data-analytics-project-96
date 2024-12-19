@@ -1,21 +1,24 @@
 with tab1 as (
     select
         s.visitor_id,
-        s.visit_date,
+        date(s.visit_date) as visit_date,
         s.source as utm_source,
         s.medium as utm_medium,
         s.campaign as utm_campaign,
         l.lead_id,
         l.created_at,
-        sum(l.amount) over (partition by l.visitor_id) as amount,
         l.closing_reason,
         l.status_id,
+        sum(l.amount) over (partition by l.visitor_id) as amount,
         row_number()
-            over (partition by s.visitor_id order by s.visit_date desc)
+            over (
+                partition by s.visitor_id
+                order by s.visit_date desc
+            )
         as rn
     from sessions as s
     left join leads as l on s.visitor_id = l.visitor_id
-       
+
 )
 
 select
@@ -33,11 +36,10 @@ from tab1
 where
     rn = 1
     and utm_medium in ('cpc', 'cpm', 'cpa', 'cpp', 'tg', 'youtube', 'social')
-    order by amount desc nulls last,
-     visit_date asc,
-        utm_source asc,
-        utm_medium asc,
-        utm_campaign asc
-limit 10
-
-
+order by
+    amount desc nulls last,
+    visit_date asc,
+    utm_source asc,
+    utm_medium asc,
+    utm_campaign asc
+limit 10;
