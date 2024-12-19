@@ -1,7 +1,7 @@
 with tab1 as (
     select
         s.visitor_id,
-        date(s.visit_date) as visit_date,
+        s.visit_date,
         s.source as utm_source,
         s.medium as utm_medium,
         s.campaign as utm_campaign,
@@ -17,7 +17,10 @@ with tab1 as (
             )
         as rn
     from sessions as s
-    left join leads as l on s.visitor_id = l.visitor_id
+    left join leads as l 
+    on 
+        s.visitor_id = l.visitor_id 
+        and s.visit_date <= l.created_at
     where s.medium in ('cpc', 'cpm', 'cpa', 'cpp', 'tg', 'youtube', 'social')
 ),
 
@@ -28,8 +31,8 @@ last_paid_click as (
         utm_campaign,
         count(visitor_id) as visitors_count,
         count(lead_id) as leads_count,
-        visit_date,
-        count(status_id) filter (where status_id = 142) as purchases_count,
+        date(visit_date) as visit_date,
+        count(closing_reason) filter (where status_id = 142) as purchases_count,
         sum(amount) as revenue
     from tab1
     where rn = 1
