@@ -19,7 +19,10 @@ with tab1 as (
             )
         as rn
     from sessions as s
-    left join leads as l on s.visitor_id = l.visitor_id
+     left join leads as l 
+    on 
+        s.visitor_id = l.visitor_id 
+        and s.visit_date <= l.created_at
     where s.medium in ('cpc', 'cpm', 'cpa', 'cpp', 'tg', 'youtube', 'social')
 ),
 
@@ -120,7 +123,10 @@ with tab1 as (
             )
         as rn
     from sessions as s
-    left join leads as l on s.visitor_id = l.visitor_id
+     left join leads as l 
+    on 
+        s.visitor_id = l.visitor_id 
+        and s.visit_date <= l.created_at
     where s.medium in ('cpc', 'cpm', 'cpa', 'cpp', 'tg', 'youtube', 'social')
 ),
 
@@ -235,7 +241,10 @@ with tab1 as (
             )
         as rn
     from sessions as s
-    left join leads as l on s.visitor_id = l.visitor_id
+     left join leads as l 
+    on 
+        s.visitor_id = l.visitor_id 
+        and s.visit_date <= l.created_at
     where s.medium in ('cpc', 'cpm', 'cpa', 'cpp', 'tg', 'youtube', 'social')
 ),
 
