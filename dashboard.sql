@@ -106,7 +106,7 @@ select
     end as cpl,
     case
         when sum(lpc.purchases_count) = 0 then 0
-        else 
+        else
             round(
                 sum(ads.total_cost) / sum(lpc.purchases_count),
                 2
@@ -114,7 +114,7 @@ select
     end as cppu,
     case
         when sum(ads.total_cost) = 0 then 0
-        else 
+        else
             coalesce(
                 round(
                     (sum(lpc.revenue) - sum(ads.total_cost))
@@ -122,7 +122,7 @@ select
                     / sum(ads.total_cost),
                     2
                 ),
-            0
+                0
             )
     end as roi
 from

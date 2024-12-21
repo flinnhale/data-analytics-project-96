@@ -19,10 +19,10 @@ tab1 as (
         ) as rn
     from
         sessions as s
-    left join 
+    left join
         leads as l on
-            s.visitor_id = l.visitor_id
-            and s.visit_date <= l.created_at
+        s.visitor_id = l.visitor_id
+        and s.visit_date <= l.created_at
 )
 
 select
