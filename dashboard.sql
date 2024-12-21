@@ -94,7 +94,7 @@ ads as (
 )
 
 select
-    visit_date,
+    lpc.visit_date,
     lpc.utm_source,
     case
         when sum(lpc.visitors_count) = 0 then 0
@@ -106,22 +106,24 @@ select
     end as cpl,
     case
         when sum(lpc.purchases_count) = 0 then 0
-        else round(
-            sum(ads.total_cost) / sum(lpc.purchases_count),
-            2
-        )
+        else 
+            round(
+                sum(ads.total_cost) / sum(lpc.purchases_count),
+                2
+            )
     end as cppu,
     case
         when sum(ads.total_cost) = 0 then 0
-        else coalesce(
-            round(
-                (sum(lpc.revenue) - sum(ads.total_cost))
-                * 100.00
-                / sum(ads.total_cost),
-                2
-            ),
+        else 
+            coalesce(
+                round(
+                    (sum(lpc.revenue) - sum(ads.total_cost))
+                    * 100.00
+                    / sum(ads.total_cost),
+                    2
+                ),
             0
-        )
+            )
     end as roi
 from
     last_paid_click as lpc
@@ -227,9 +229,9 @@ order by
 -- ежедневные расходы на рекламу
 
 select
-    campaign_date::date as spend_day,
+    date(campaign_date) as spend_day,
     utm_source,
-    SUM(daily_spent) as total_spent
+    sum(daily_spent) as total_spent
 from
     vk_ads
 group by
@@ -237,9 +239,9 @@ group by
     2
 union all
 select
-    campaign_date::date as spend_day,
+    date(campaign_date) as spend_day,
     utm_source,
-    SUM(daily_spent) as total_spent
+    sum(daily_spent) as total_spent
 from
     ya_ads
 group by
@@ -249,19 +251,18 @@ order by
     1,
     2;
 
-    
+
 -- смотрим через сколько дней закрывается 90% лидов
 
 with
 tab1 as (
     select
         s.visitor_id,
-        max(visit_date) as mx_visit
+        max(s.visit_date) as mx_visit
     from
         sessions as s
-    left join leads as l on s.visitor_id = l.visitor_id
     where
-        medium in (
+        s.medium in (
             'cpc',
             'cpm',
             'cpa',
@@ -277,10 +278,10 @@ tab1 as (
 tab2 as (
     select
         s.visit_date,
-        lead_id,
+        s.lead_id,
         l.created_at,
-        closing_reason,
-        status_id
+        l.closing_reason,
+        l.status_id
     from
         tab1 as t
     inner join sessions as s
@@ -292,7 +293,7 @@ tab2 as (
             t.visitor_id = l.visitor_id
             and t.mx_visit <= l.created_at
     where
-        medium in (
+        s.medium in (
             'cpc',
             'cpm',
             'cpa',
@@ -301,7 +302,7 @@ tab2 as (
             'youtube',
             'social'
         )
-        and status_id = 142
+        and l.status_id = 142
 )
 
 select
